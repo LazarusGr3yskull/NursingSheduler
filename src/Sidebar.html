@@ -1,0 +1,226 @@
+<!-- Sidebar.html -->
+<link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+
+<style>
+  :root {
+    --kopilot-primary: #6a0dad;
+    --kopilot-secondary: #b19cd9;
+    --kopilot-accent: #8E2DE2;
+  }
+  .kopilot-bg {
+    background: linear-gradient(135deg, var(--kopilot-primary), var(--kopilot-accent));
+    color: #fff;
+    min-height: 100%;
+  }
+  .btn-kopilot-primary { background-color: var(--kopilot-primary); border-color: var(--kopilot-primary); color: #fff; }
+  .section-card {
+    background: rgba(255,255,255,0.09);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px;
+    padding: 12px; margin-bottom: 12px;
+    backdrop-filter: blur(4px);
+  }
+  .section-card h6 { margin: 0 0 8px 0; font-weight: 600; }
+  .btn:disabled { opacity: .7; }
+  #statusArea .alert { margin-bottom: 8px; padding: 8px 12px; }
+  .mini { font-size: .85rem; opacity: .9; }
+  .kv-pill {
+    display:inline-block; padding:2px 8px; border-radius:999px;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.25);
+    margin-left: 6px;
+  }
+  /* Globaler Loader oben */
+  #busyBar {
+    display:none;
+    gap:8px;
+    align-items:center;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 12px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+  }
+  .spinner {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-top-color: #fff;
+    animation: spin 0.8s linear infinite;
+    display:inline-block; vertical-align: -2px;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<div class="p-3 kopilot-bg">
+  <h3 class="mb-1">Pflege-Kopilot</h3>
+  <div class="mini mb-3">
+    Monatsplanung kompakt
+    <span id="kwBadges"></span>
+  </div>
+
+  <!-- Globaler Loader -->
+  <div id="busyBar">
+    <div class="spinner" aria-hidden="true"></div>
+    <div class="mini"><span id="busyLabel">Wird ausgeführt …</span></div>
+  </div>
+
+  <!-- Status/Toasts -->
+  <div id="statusArea"></div>
+
+  <!-- Setup -->
+  <div class="section-card">
+    <h6>Setup</h6>
+    <div class="d-grid gap-2">
+      <button class="btn btn-kopilot-primary" id="btnCreateNurses"
+              onclick="runTask('ui_createNursesSheet','NURSES-Sheet erstellen','btnCreateNurses')">
+        NURSES-Sheet erstellen
+      </button>
+    </div>
+    <div class="mini mt-2">
+      Felder inkl. Rollen/Units, BLS/ACLS, Präferenzen, Limits.
+    </div>
+  </div>
+
+  <!-- MIT AVAIL (Form-gestützt) -->
+  <div class="section-card">
+    <h6>Monatsworkflow <span class="mini">(mit AVAIL)</span></h6>
+    <div class="d-grid gap-2">
+      <button class="btn btn-light" id="btnPrepareTemplates"
+              onclick="runTask('ui_prepareNextMonthTemplates','Vorlagen AVAIL + SHIFT_DEMAND anlegen','btnPrepareTemplates')">
+        1) Vorlagen (AVAIL_KW + SHIFT_DEMAND_KW)
+      </button>
+      <button class="btn btn-success" id="btnGenerateMonthWithAvail"
+              onclick="runTask('ui_generateNextMonthRoster','Dienstplan (mit AVAIL) erstellen','btnGenerateMonthWithAvail')">
+        2) Dienstplan (mit AVAIL)
+      </button>
+    </div>
+    <div class="mini mt-2">
+      Erst AVAIL & Bedarf prüfen/ergänzen, dann Plan generieren.
+    </div>
+  </div>
+
+  <!-- OHNE AVAIL (Schnellmodus / Test) -->
+  <div class="section-card">
+    <h6>Monatsworkflow <span class="mini">(ohne AVAIL)</span></h6>
+    <div class="d-grid gap-2">
+      <button class="btn btn-outline-light" id="btnPrepareDemandOnly"
+              onclick="runTask('ui_prepareNextMonthDemandOnly','Nur SHIFT_DEMAND-Vorlagen anlegen','btnPrepareDemandOnly')">
+        1) Vorlagen (nur SHIFT_DEMAND_KW)
+      </button>
+      <button class="btn btn-outline-light" id="btnRandomDemand"
+              onclick="runTask('ui_generateRandomDemandNextMonth','Zufalls-Bedarf erzeugen','btnRandomDemand')">
+        2) Zufalls-Bedarf (Stress-Test)
+      </button>
+      <button class="btn btn-dark" id="btnGenerateMonthNoAvail"
+              onclick="runTask('ui_generateNextMonthRoster','Dienstplan (ohne AVAIL) erstellen','btnGenerateMonthNoAvail')">
+        3) Dienstplan (ohne AVAIL)
+      </button>
+    </div>
+    <div class="mini mt-2">
+      Nützlich für Dry-Runs oder wenn Verfügbarkeiten extern erfasst werden.
+    </div>
+  </div>
+
+  <!-- Hinweise -->
+  <div class="mini text-center mt-2">
+    Schichten: Früh 06–14 · Spät 14–22 · Nacht 22–08 (+1).<br>
+    Standardregeln: min. Ruhezeit <strong>12 h</strong>, max. <strong>7</strong> Tage in Folge.
+  </div>
+</div>
+
+<script>
+  // ISO-KW Anzeige
+  function getISOWeek(d) {
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    return { year: date.getUTCFullYear(), week: weekNo };
+  }
+  function pad2(n){ return n < 10 ? '0'+n : ''+n; }
+  (function renderKwBadges(){
+    const now = new Date();
+    const thisKw = getISOWeek(now);
+    const next = new Date(+now + 28*24*3600*1000); // ca. nächster Monat
+    const nextKw = getISOWeek(next);
+    const el = document.getElementById('kwBadges');
+    el.innerHTML = `
+      <span class="kv-pill">KW ${pad2(thisKw.week)} / ${thisKw.year}</span>
+      <span class="kv-pill">→</span>
+      <span class="kv-pill">KW ${pad2(nextKw.week)} / ${nextKw.year}</span>
+    `;
+  })();
+
+  // Status/Toasts
+  function pushStatus(type, msg) {
+    const area = document.getElementById('statusArea');
+    const id = 'al_'+Math.random().toString(36).slice(2);
+    const html = `
+      <div id="${id}" class="alert alert-${type} d-flex justify-content-between align-items-center" role="alert">
+        <span>${msg}</span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"
+                style="filter: invert(1); opacity:.9;"></button>
+      </div>`;
+    area.insertAdjacentHTML('afterbegin', html);
+    area.addEventListener('click', function(ev){
+      const btn = ev.target.closest('[data-bs-dismiss="alert"]');
+      if (!btn) return;
+      const card = btn.closest('.alert'); if (card) card.remove();
+    }, { once: true });
+    setTimeout(()=> { const n = document.getElementById(id); if (n) n.remove(); }, 6000);
+  }
+
+  // Alle Buttons, die gesperrt werden sollen
+  const allBtnIds = [
+    'btnCreateNurses',
+    'btnPrepareTemplates','btnGenerateMonthWithAvail',
+    'btnPrepareDemandOnly','btnRandomDemand','btnGenerateMonthNoAvail'
+  ];
+
+  function setBusy(busy, labelText) {
+    allBtnIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = busy;
+    });
+    const bar = document.getElementById('busyBar');
+    const lbl = document.getElementById('busyLabel');
+    if (busy) {
+      bar.style.display = 'flex';
+      lbl.textContent = labelText || 'Wird ausgeführt …';
+    } else {
+      bar.style.display = 'none';
+      lbl.textContent = 'Wird ausgeführt …';
+    }
+  }
+
+  function withButtonBusy(btnId, fn) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return fn();
+    const original = btn.innerHTML;
+    btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>${original.replace(/<[^>]*>/g,'')} wird ausgeführt…`;
+    try { return fn(); } finally {
+      setTimeout(()=>{ btn.innerHTML = original; }, 120);
+    }
+  }
+
+  // Generischer Server-Runner
+  function runTask(serverFn, label, btnId){
+    setBusy(true, label);
+    pushStatus('info', `🟣 Starte: <strong>${label}</strong> …`);
+    withButtonBusy(btnId, () => {
+      google.script.run
+        .withSuccessHandler(() => {
+          pushStatus('success', `✅ Fertig: <strong>${label}</strong>.`);
+          setBusy(false);
+        })
+        .withFailureHandler(err => {
+          const msg = (err && err.message) ? err.message : String(err);
+          pushStatus('danger', `❌ Fehler bei <strong>${label}</strong>: ${msg}`);
+          setBusy(false);
+        })[serverFn]();
+    });
+  }
+</script>
